@@ -12,13 +12,13 @@ import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 import seaborn as sns
-import ipywidgets as widgets
-from IPython.display import display, clear_output
+import os
+from pathlib import Path
+import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
-import os
-import flask
+
 
 #Input
 start_date = dt.datetime(2000, 1, 1)
@@ -29,6 +29,8 @@ spx = yf.Ticker("SPY")
 spx_hist = spx.history(start=start_date, end=end_date)
 ust = yf.Ticker("SHY")
 ust_hist = ust.history(start=start_dateB, end=end_date)
+
+
 
 df = pd.DataFrame({'Close': spx_hist['Close']})
 df['CloseB'] = ust_hist['Close']
@@ -41,7 +43,7 @@ if df['CloseB'].isnull().values.any():
     df['ReturnB'].fillna(0, inplace=True)
 
 # Berechne den 30-Tage-gleitenden Durchschnitt
-df['30D_MA'] = df['Close'].rolling(window=30).mean()
+df['30D_MA'] = df['Close'].rolling(window=29).mean()
 df['200D_MA'] = df['Close'].rolling(window=198).mean()
 
 # Berechne die taegliche Standardabweichung ueber die letzten 50 Tage
@@ -57,7 +59,9 @@ df['50d_STD'] = df['STD'] * np.sqrt(252)
 df['VaR_1d'] = -df['50d_STD'] * norm.ppf(0.99) * np.sqrt(1/252)*-1
 
 # Berechne die kumulierte Rendite des SPX
-df['SPX_Total_Return'] = (df['Return']).cumsum()
+df ["SPX_Total_Return"] =  df ["Return"].cumsum()
+df ["Rolling_200D_High_Discount"] = df['Close'].rolling(window=200).max()/1.3
+
 df['UST_Total_Return'] = (df['ReturnB']).cumsum()
 
 # Signal
@@ -73,10 +77,38 @@ df.loc[df['Signal'] == 1, 'SignalB'] = 0
 df['Portfolio_Return'] = df['Return'] * df['Signal'].shift(1) + df['ReturnB'] * df['SignalB'].shift(1)
 previous_signal = df['Signal'].shift(2)
 df.loc[df['Signal'] != previous_signal, 'Portfolio_Return'] -= 0.0001  # transaction costs of 1 basis points (0.0001)
-df['Total_Return'] = (df['Portfolio_Return']).cumsum()
+df['Total_Return'] = df['Portfolio_Return'].cumsum()
+df ["Total_Return"] = df ["Portfolio_Return"].cumsum()
 df = df.reset_index()
 df.Date = pd.to_datetime(df.Date)
 df.Date = df.Date.dt.date
+df.to_excel('output.xlsx', index=False)
+
+# TEST: Probability of Signal Change
+df['Target'] = (df['Signal'] != df['Signal'].shift(-20)).astype(int)
+# 2. Eingabemerkmale definieren
+X = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']]
+y = df['Target']
+# Datenbereinigung: Entfernen von NaN Werten
+X = X.dropna()
+y = y[X.index]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# 4. Training des Modells
+clf = LogisticRegression()
+clf.fit(X_train, y_train)
+# 5. Vorhersagen und Evaluierung
+y_pred = clf.predict(X_test)
+print(f"Accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%")
+# 6. Vorhersage für die Zukunft basierend auf aktuellen Werten
+current_values = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']].iloc[-1].values.reshape(1, -1)
+probability_switch = clf.predict_proba(current_values)[0][1]
+
+
+
+# Define base directory
+base_dir = Path(__file__).resolve().parent
+results = base_dir / "output.xlsx"
+df.to_excel(results, index=False)
 
 # Definition of minor charts
 df['Alpha'] = (df['Portfolio_Return']) - (df['Return'])
@@ -130,27 +162,6 @@ current_var_1d = round(df['VaR_1d'].iloc[-1],4)
 current_30d_ma = df['30D_MA'].iloc[-1]
 current_200d_ma = df['200D_MA'].iloc[-1]
 ma_delta = current_30d_ma - current_200d_ma
-
-# TEST: Probability of Signal Change
-df['Target'] = (df['Signal'] != df['Signal'].shift(-20)).astype(int)
-# 2. Eingabemerkmale definieren
-X = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']]
-y = df['Target']
-# Datenbereinigung: Entfernen von NaN Werten
-X = X.dropna()
-y = y[X.index]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-# 4. Training des Modells
-clf = LogisticRegression()
-clf.fit(X_train, y_train)
-# 5. Vorhersagen und Evaluierung
-y_pred = clf.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%")
-# 6. Vorhersage für die Zukunft basierend auf aktuellen Werten
-current_values = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']].iloc[-1].values.reshape(1, -1)
-probability_switch = clf.predict_proba(current_values)[0][1]
-print(f"Probability of a signal change within the next 30 days: {probability_switch * 100:.2f}%")
-
 
 # Calculate the 5y rolling annualized Sharpe Ratio for the portfolio and the benchmark (1y = 252 trading days)
 df['Rolling_SPY_Sharpe'] = (df['Return'].rolling(window=1260).mean()*252) / (df['Return'].rolling(window=1260).std()*np.sqrt(252))
@@ -231,7 +242,7 @@ app = Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 
 def determine_button_color(signal_value):
-    return 'green' if signal_value == 1 else 'red'
+    return '#4472C4' if signal_value == 1 else 'red'
 
 def determine_button_label(signal_value):
     return 'Risk On' if signal_value == 1 else 'Risk Off'
@@ -334,8 +345,17 @@ app.layout = html.Div([
                 html.Button(
                 determine_button_label(current_signal), 
                 id='signal-button', 
-                className='signal-button ' + determine_button_color_class(current_signal)),
-
+                style={
+                                'background-color': determine_button_color(current_signal),
+                                'color': 'white',
+                                'border': 'none',
+                                'padding': '10px 20px',
+                                'margin-right': '10px',
+                                'fontWeight': 'bold',
+                                'font-family': 'Segoe UI',
+                                'display': 'inline-block'
+                            }),
+                            
                 # Risk Button
                 html.Button(
                 "{} (VaR = {}%)".format(determine_risk_button_label(current_var_1d), round(current_var_1d*100,4)), 
@@ -379,29 +399,22 @@ app.layout = html.Div([
                     'font-family': 'Segoe UI',
                     'display': 'inline-block'
                 }
-            ),
+                
+            ),html.Div(
+                f"Probability of a signal change within the next 5 trading days: {probability_switch * 100:.2f}%",
+                style={
+                    'color': '#233a53',
+                    'padding': '10px 10px',
+                    'fontWeight': 'bold',
+                    'font-family': 'Segoe UI',
+                    'text-align': 'center',
+    }
+)
 
             ], style={'textAlign': 'center'}),  # This centralizes the button group
 
             dcc.Graph(id='performance-graph', style={'height': '90vh', 'clear': 'both'}),
 
-                    # Button für die Wahrscheinlichkeit eines Signalwechsels
- html.Div(
-    html.Button(
-        "Probability of signal shift within the next 20 days= {:.2f}%".format(probability_switch * 100), 
-        id='probability-button', 
-        style={
-            'background-color': 'white',
-            'color': 'black',
-            'border': 'none',
-            'padding': '10px 20px',
-            'fontWeight': 'bold',
-            'font-family': 'Segoe UI',
-            'display': 'inline-block'
-        }
-    ),
-    style={'textAlign': 'center'}  # Zentriert den Button innerhalb dieses Div-Containers
-),
 
             dcc.Graph(id='price-and-var-graph', style={'height': '90vh'}),
 
@@ -486,8 +499,8 @@ def update_graph(relayoutData):
     trace1 = go.Scatter(x=df['Date'], y=df['SPX_Total_Return'], mode='lines', name='S&P500 Total Return',line=dict(color="grey",width=2))
     trace2 = go.Scatter(x=df['Date'], y=df['Total_Return'], mode='lines', name='SPY3 Total Return',line=dict(color="#4472C4",width=2))
     trace3 = go.Scatter(x=df['Date'], y=df['UST_Total_Return'], mode='lines', name='US Treasury Total Return')
-    layout_performance = go.Layout(title='Performance Overview: SPY3 vs. SPX',
-                                   xaxis=dict(title='Date', range=[min(df['Date']), max(df['Date'])],dtick="M24"),
+    layout_performance = go.Layout(title='Performance Overview: SPY3 STF vs. S&P500 ETF',
+                                   xaxis=dict(title='Date', range=[min(df['Date']), max(df['Date'])], tickformat="%d-%b-%Y", ),
                                    yaxis=dict(title='Cumulative Return'),
                                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))  # Adjusted legend
     # New graph for Close prices, Moving averages, and VaR
@@ -515,7 +528,7 @@ def update_graph(relayoutData):
     
     #Inside the Spy3 model with all indicators (except, yet, of Mean Reversion factor)
     layout_prices_and_var = go.Layout(title='Inside the SPY3 Model: Prices, Moving Averages and VaR',
-                                 xaxis=dict(title='Date',dtick="M24"),
+                                 xaxis=dict(title='Date', range=[min(df['Date']), max(df['Date'])], tickformat="%d-%b-%Y", ),
                                  yaxis=dict(title='Price'),
                                  yaxis2=dict(title='VaR', overlaying='y', side='right'),
                                  legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)) 
@@ -540,7 +553,7 @@ def update_graph(relayoutData):
     valid_sharpe = df.dropna(subset=['Rolling_SPY_Sharpe', 'Rolling_SPY3_Sharpe'])
     trace_spy_sharpe = go.Scatter(x=valid_sharpe['Date'], y=valid_sharpe['Rolling_SPY_Sharpe'], mode='lines', name='SPY Rolling Sharpe Ratio', line=dict(color="grey", width=2))
     trace_spy3_sharpe = go.Scatter(x=valid_sharpe['Date'], y=valid_sharpe['Rolling_SPY3_Sharpe'], mode='lines', name='SPY3 Rolling Sharpe Ratio', line=dict(color="#4472C4", width=2))
-    layout_sharpe = go.Layout(title='5y Rolling Sharpe Ratio: SPY3 vs. SPX',
+    layout_sharpe = go.Layout(title='5y Rolling Sharpe Ratio: SPY3 STF vs. S&P500 ETF',
                           xaxis=dict(title='Date'),
                           legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
                           yaxis=dict(title='Sharpe Ratio'))
@@ -549,7 +562,7 @@ def update_graph(relayoutData):
     valid_perf = df.dropna(subset=['Rolling_SPY', 'Rolling_SPY3'])
     trace_roll_perf_spy = go.Scatter(x=valid_perf['Date'], y=valid_perf['Rolling_SPY'], mode='lines', name='S&P500 Rolling Performance', line=dict(color="grey", width=2))
     trace_roll_perf_spy3 = go.Scatter(x=valid_perf['Date'], y=valid_perf['Rolling_SPY3'], mode='lines', name='SPY3 Rolling Performance', line=dict(color="#4472C4", width=2))
-    layout_roll_perf = go.Layout(title='5y Rolling Annual Performance: SPY3 vs. SPX', 
+    layout_roll_perf = go.Layout(title='5y Rolling Annual Performance: SPY3 STF vs. S&P500 ETF', 
                              xaxis=dict(title='Date'), 
                              yaxis=dict(title='Annualized Return'), 
                              legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
@@ -557,7 +570,7 @@ def update_graph(relayoutData):
     # Rolling Volatility graph
     trace_roll_vol_spy = go.Scatter(x=df['Date'], y=df['Rolling_SPY_Vol'], mode='lines', name='S&P500 Rolling Volatility',line=dict(color="grey",width=2))
     trace_roll_vol_spy3 = go.Scatter(x=df['Date'], y=df['Rolling_SPY3_Vol'], mode='lines', name='SPY3 Rolling Volatility',line=dict(color="#4472C4",width=2))
-    layout_roll_vol = go.Layout(title='Rolling Volatility: SPY3 vs. SPX', xaxis=dict(title='Date'), yaxis=dict(title='Volatility (1-year)'), legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
+    layout_roll_vol = go.Layout(title='Rolling Volatility: SPY3 STF vs. S&P500 ETF', xaxis=dict(title='Date'), yaxis=dict(title='Volatility (1-year)'), legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
     
     trace_calmar_spy = go.Scatter(x=df['Date'], y=df['Rolling_Calmar_SPY'], mode='lines', name='Calmar Ratio SPY', line=dict(color="grey", width=2))
     trace_calmar_spy3 = go.Scatter(x=df['Date'], y=df['Rolling_Calmar_SPY3'], mode='lines', name='Calmar Ratio SPY3', line=dict(color="#4472C4", width=2))
