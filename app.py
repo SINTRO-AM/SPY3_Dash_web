@@ -103,12 +103,6 @@ current_values = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount'
 probability_switch = clf.predict_proba(current_values)[0][1]
 
 
-
-# Define base directory
-base_dir = Path(__file__).resolve().parent
-results = base_dir / "output.xlsx"
-df.to_excel(results, index=False)
-
 # Definition of minor charts
 df['Alpha'] = (df['Portfolio_Return']) - (df['Return'])
 df['Alpha_cum'] = (df['Alpha']).cumsum()
