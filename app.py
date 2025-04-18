@@ -82,7 +82,6 @@ df ["Total_Return"] = df ["Portfolio_Return"].cumsum()
 df = df.reset_index()
 df.Date = pd.to_datetime(df.Date)
 df.Date = df.Date.dt.date
-df.to_excel('output.xlsx', index=False)
 
 # TEST: Probability of Signal Change
 df['Target'] = (df['Signal'] != df['Signal'].shift(-20)).astype(int)
