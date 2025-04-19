@@ -1,1 +1,1 @@
-web: gunicorn SPY3_Dash_web:server
+web python SPY3_Dash_web.py

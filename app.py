@@ -82,7 +82,6 @@ df ["Total_Return"] = df ["Portfolio_Return"].cumsum()
 df = df.reset_index()
 df.Date = pd.to_datetime(df.Date)
 df.Date = df.Date.dt.date
-df.to_excel('output.xlsx', index=False)
 
 # TEST: Probability of Signal Change
 df['Target'] = (df['Signal'] != df['Signal'].shift(-20)).astype(int)
@@ -103,12 +102,6 @@ print(f"Accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%")
 current_values = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']].iloc[-1].values.reshape(1, -1)
 probability_switch = clf.predict_proba(current_values)[0][1]
 
-
-
-# Define base directory
-base_dir = Path(__file__).resolve().parent
-results = base_dir / "output.xlsx"
-df.to_excel(results, index=False)
 
 # Definition of minor charts
 df['Alpha'] = (df['Portfolio_Return']) - (df['Return'])
@@ -592,5 +585,4 @@ print('End')
 
 if __name__ == '__main__':
     app.run_server(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-    server = app.server
     
