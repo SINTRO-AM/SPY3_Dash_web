@@ -83,10 +83,6 @@ df = df.reset_index()
 df.Date = pd.to_datetime(df.Date)
 df.Date = df.Date.dt.date
 
-# Define base directory
-base_dir = Path(__file__).resolve().parent
-results = base_dir / "output.xlsx"
-df.to_excel(results, index=False)
 
 # Definition of minor charts
 df['Alpha'] = (df['Portfolio_Return']) - (df['Return'])
