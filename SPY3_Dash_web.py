@@ -82,28 +82,6 @@ df ["Total_Return"] = df ["Portfolio_Return"].cumsum()
 df = df.reset_index()
 df.Date = pd.to_datetime(df.Date)
 df.Date = df.Date.dt.date
-df.to_excel('output.xlsx', index=False)
-
-# TEST: Probability of Signal Change
-df['Target'] = (df['Signal'] != df['Signal'].shift(-20)).astype(int)
-# 2. Eingabemerkmale definieren
-X = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']]
-y = df['Target']
-# Datenbereinigung: Entfernen von NaN Werten
-X = X.dropna()
-y = y[X.index]
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-# 4. Training des Modells
-clf = LogisticRegression()
-clf.fit(X_train, y_train)
-# 5. Vorhersagen und Evaluierung
-y_pred = clf.predict(X_test)
-print(f"Accuracy: {accuracy_score(y_test, y_pred) * 100:.2f}%")
-# 6. Vorhersage für die Zukunft basierend auf aktuellen Werten
-current_values = df[['30D_MA', '200D_MA', 'VaR_1d', 'Rolling_200D_High_Discount']].iloc[-1].values.reshape(1, -1)
-probability_switch = clf.predict_proba(current_values)[0][1]
-
-
 
 # Define base directory
 base_dir = Path(__file__).resolve().parent
@@ -400,15 +378,6 @@ app.layout = html.Div([
                     'display': 'inline-block'
                 }
                 
-            ),html.Div(
-                f"Probability of a signal change within the next 5 trading days: {probability_switch * 100:.2f}%",
-                style={
-                    'color': '#233a53',
-                    'padding': '10px 10px',
-                    'fontWeight': 'bold',
-                    'font-family': 'Segoe UI',
-                    'text-align': 'center',
-    }
 )
 
             ], style={'textAlign': 'center'}),  # This centralizes the button group
